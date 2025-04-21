@@ -1,0 +1,450 @@
+---
+title: 'Project: Dimension Reduction and Clustering on Students Performance Dataset'
+author: "Aleksandra Dobosz"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "/Users/aleksandra/Desktop/Unsupervised learning")
+```
+
+# Dimension Reduction on Students Performance dataset
+
+  Student performance is a key indicator of academic success and can be influenced by various factors including socioeconomic background, parental education, gender, and study habits. Understanding the underlying structure of these factors can help educators, policymakers, and researchers identify patterns and relationships that affect academic outcomes. In this paper, I will perform Principal Component Analysis (PCA) and Factor Analysis, to explore and reduce the dimensions of the 'Students Performance in Exams' dataset from Kaggle, uncovering key variables and patterns that drive student achievement. 
+
+## Dataset Overview 
+
+  The "Students Performance in Exam" dataset contains 1000 observations of students, each characterized by 7 variables. They divide into 5 categorical variables - gender, race or ethnicity, parental education, test preparation and lunch type, as well as 3 numerical variables such as math, reading and writing score. This dataset provides comprehensive information on student academic performance. The variables are related to demographics, such as gender (male/female) and race/ethinicity, which categorizes students into different racial or ethnic groups. Parental influence is represented by the parental level of education, ranging from "Some high school" to "Master's degree". Dataset also contains school-related factor, such as whether the student has completed a test preparation course and even the type of lunch (standard or reduced/free) they receive, which can have an impact on the academic output. Academic performance is captured through three numerical variables: math score, reading score and writing score. 
+
+## Goal of the paper 
+
+  The primary objective of this analysis is to reduce the dimensionality of the dataset, while retaining as much information as possible. This will be achieved through:
+
+- **Principal Component Analysis (PCA)** that reduces the number of dimensions in large datasets to principal components that retain most of the original information. It does this by transforming potentially correlated variables into a smaller set of variables, called principal components. It is very effective for visualizing and exploring dataset that are characterized by high-dimensionality or many features - it can identify the patterns and trends.[^1] 
+
+- **Factor Analysis** - an unsupervised technique for dimensionality reduction, grouping correlated variables into fewer latent factors that share common variance. It simplifies data by uncovering meaningful relationships among variables.[^2]
+
+## Introduction - data preprocessing
+
+  As a first step, I am assigning new variables names for a cleaner look of the dataset. In the next steps, I will preprocess the data to ensure it is suitable for dimension reduction. There are no NAs values in this dataset.
+
+```{r, echo=FALSE}
+setwd("/Users/aleksandra/Desktop/Unsupervised learning")
+```
+```{r}
+Students_performance <- read.csv("StudentsPerformance.csv", sep=",", dec=".", header=TRUE, col.names=c('Gender', 'Race/Ethnicity', 'ParentsEducation', 'Lunch', 'TestPreparationCourse', 'MathScore', 'ReadingScore', 'WritingScore'))
+head(Students_performance, 10)
+```
+```{r}
+str(Students_performance)
+```
+
+There are 5 categorical variables. I am converting them into numerical format. 
+```{r, message=FALSE}
+Students_performance$Gender <- as.numeric(factor(Students_performance$Gender))
+Students_performance$Race.Ethnicity <- as.numeric(factor(Students_performance$Race.Ethnicity))
+unique(Students_performance$ParentsEducation)
+library(dplyr)
+Students_performance$ParentsEducation <- recode(Students_performance$ParentsEducation,
+                                                "some high school" = 1,
+                                                "high school" = 2,
+                                                "some college" = 3,
+                                                "associate's degree" = 4,
+                                                "bachelor's degree" = 5,
+                                                "master's degree" = 6)
+
+Students_performance$Lunch <- as.numeric(factor(Students_performance$Lunch))
+Students_performance$TestPreparationCourse <- as.numeric(factor(Students_performance$TestPreparationCourse))
+str(Students_performance)
+```
+All of the variables are numerical. 
+
+```{r}
+library("ggplot2")
+library("reshape2")
+Students_performance_plot <- melt(Students_performance, id.vars = NULL)
+ggplot(data = Students_performance_plot) + geom_bar(aes(x = value), fill = "darkolivegreen4") +  theme(plot.title = element_text(hjust = 0.5, size = 15)) +
+  facet_wrap(~ variable, scales = "free", ncol = 3)
+
+summary(Students_performance)
+table(Students_performance$ParentsEducation)
+```
+  According to the plots above, female group is larger and equivalent to 518 in comparison to male group - 482. A substantial share of the students belong to the third race/ethnicity group. When it comes to parental education, 226 of the students have parents that graduate from 'some college'. Significantly larger group of students (645) are equipped with a standard lunch and only 358 students from 1000 observed has completed a preparation course for the exam. 
+
+
+## Kaiser-Meyer-Olkin and Bartlett's test
+
+  Before performing Principal Component Analysis and Factor Analysis, I am assessing, whether the data is suitable for these techniques. I am using statistical tests that are commonly choosed to evaluate the suitability for dimension reduction. 
+
+- **Kaiser-Meyer-Olkin Test** - a measure of the proportion of variance among variables that might be common variance. The lower the proportion, the more suited your data is to Factor Analysis.[^3]
+
+- **Bartlett's Test of Sphericity** that provides information about whether the correlations in the data are strong enough to use a dimension-reduction technique such as principal components or common factor analysis.[^4]
+
+```{r, message=FALSE}
+library("psych")
+library("corrplot")
+
+#Correlation Matrix 
+cor_matrix <- cor(Students_performance)
+corrplot(cor_matrix, type = "lower", order = "alphabet", tl.cex=0.6)
+
+KMO(cor_matrix) 
+cortest.bartlett(cor_matrix, 1000)
+```
+  Overall MSA is equal to 0.58, which is definitely not ideal but marginally suitable for PCA and Factor Analysis. Nevertheless, the p-value from Bartlett's test, which is equivalent to 0 indicates that the correlations are significant and the data are not an identity matrix, which supports the feasibility of factor analysis. The chi-square test indicates the same and it supports PCA because it shows there are relationships between variables. 
+
+Considering the output, I proceed with the PCA and Factor analysis. 
+
+## Principal Component Analysis (PCA)
+
+```{r, message=FALSE}
+library("factoextra")
+pca <- prcomp(Students_performance, center = TRUE, scale=TRUE)
+pca
+```
+
+  Determining the optimal number of principal components
+```{r}
+# Calculate cumulative variance explained
+explained_variance <- summary(pca)$importance[2, ]
+cumulative_variance <- cumsum(explained_variance)
+
+# Plot cumulative variance
+plot(cumulative_variance, type = "b", main = "Cumulative Variance Explained", xlab = "Number of Components", ylab = "Cumulative Variance")
+cumulative_variance
+```
+
+  I am calculating the cumulative variance explained by the principal components. The plot shows how much variance is explained as more components are added. 
+
+```{r}
+#Kaiser Criterion - Eigenvalues
+eigenvalues <- pca$sdev^2
+
+# Determine number of components with eigenvalue > 1
+num_components <- sum(eigenvalues > 1)
+num_components
+```
+
+  The Kaiser criterion (rule of thumb) decides how many components to retain. An eigenvalue > 1 indicates that the component explains more variance than an individual variable would (since the variance of a standardized variable is 1). In this example, it gives us 4 components to retain. The first 4 components explain 78.6% of the total variance in Students Performance dataset. 
+
+```{r}
+fviz_eig(pca, choice = "eigenvalue", barfill = "darkolivegreen4", barcolor = "darkolivegreen", addlabels = TRUE, main = "Eigenvalues")
+
+fviz_pca_var(pca, col.var = "darkgreen")
+
+```
+
+  The plots above visualize the eigenvalues for each principal component and variables in PCA. Variables such as Writing and Reading Score are strongly positively correlated since they are pointing in similar direction. Longer arrows here, suggest that variables contribute more to the PCA - Writing, Reading, Math Score, Gender. 
+
+### Loading Analysis 
+
+  I am now analyzing Loadings that represent the correlation or contribution of the original variables to each of the principal components. They will help to understand how each variable influences the principal components and interpret the reduced dimensions. 
+
+
+```{r}
+loadings <- pca$rotation 
+
+# Loading PCA1
+loadings_PC1 <- sort(abs(loadings[,1]), decreasing = TRUE)
+
+library(ggplot2)
+ggplot(data = data.frame(Variable = names(loadings_PC1), Loading = loadings_PC1), aes(x = Variable, y = Loading)) +
+  geom_bar(stat = "identity", fill = "darkolivegreen") +
+  labs(title = "Contributions to PC1", x = "Variable", y = "Loading") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+# Percantage contribution for PC1
+contribution_PC1 <- (loadings[, 1]^2) / sum(loadings[, 1]^2) * 100
+contribution_PC1
+
+#  WritingScore has the strongest contribution to PC1 - 30.571501% 
+
+```
+**WritingScore** contributes **30.57%** to **PC1**, the largest contribution among all variables - has the strongest influence on the direction of PC1.
+
+```{r}
+# Loading PC2 
+loadings_PC2 <- sort(abs(loadings[,2]), decreasing = TRUE)
+
+ggplot(data = data.frame(Variable = names(loadings_PC2), Loading = loadings_PC2), aes(x = Variable, y = Loading)) +
+  geom_bar(stat = "identity", fill = "darkolivegreen") +
+  labs(title = "Contributions to PC2", x = "Variable", y = "Loading") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+#Percntage contribution to PC2
+contribution_PC2 <- (loadings[, 2]^2) / sum(loadings[, 2]^2) * 100
+contribution_PC2
+
+# Gender has the strongest contribution to PC2 -  61.190713%
+```
+
+**PC2** is most influenced by **Gender** variable - **61.190713%**.
+
+```{r}
+
+# Loading PC3 
+
+loadings_PC3 <- sort(abs(loadings[,3]), decreasing = TRUE)
+
+ggplot(data = data.frame(Variable = names(loadings_PC3), Loading = loadings_PC3), aes(x = Variable, y = Loading)) +
+  geom_bar(stat = "identity", fill = "darkolivegreen") +
+  labs(title = "Contributions to PC3", x = "Variable", y = "Loading") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+#Percntage contribution to PC3
+contribution_PC3 <- (loadings[, 3]^2) / sum(loadings[, 3]^2) * 100
+contribution_PC3
+
+# ParentsEducation has the strongest contribution to PC3 - 40.744756732%
+
+```
+
+**ParentsEducation** has the strongest contribution to **PC3** - **61.190713%**.
+
+```{r}
+
+# Loading PCA4
+
+loadings_PC4 <- sort(abs(loadings[,4]), decreasing = TRUE)
+
+ggplot(data = data.frame(Variable = names(loadings_PC4), Loading = loadings_PC4), aes(x = Variable, y = Loading)) +
+  geom_bar(stat = "identity", fill = "darkolivegreen") +
+  labs(title = "Contributions to PC4", x = "Variable", y = "Loading") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+#Percntage contribution to PC3
+contribution_PC3 <- (loadings[, 4]^2) / sum(loadings[, 4]^2) * 100
+contribution_PC3
+
+# TestPreparationCourse has the strongest contribution to PC4 - 41.92743717%
+
+```
+
+Finally, **PC4** is dominated by **TestPreparationCourse** - **41.92743717%**.
+
+## Conclusions
+  The analysis effectively reduced the complexity of the dataset, making it easier to interpret and visualize without losing much information. From 8 original variables, 4 principal components were retained, explaining 78.6% of the total variance. The analysis revealed that certain variables, like WritingScore, Gender, ParentsEducation, and TestPreparationCourse, contribute significantly to explaining the variance in the dataset. This suggests that these factors are key drivers of differences in student performance. 
+  
+# Factor Analysis
+
+```{r}
+fa_result <- fa(Students_performance, nfactors = 4, rotate = "varimax", fm="ml")
+print(fa_result)
+```
+  ML1 explains 19%, ML2 explains 14%, ML3 explains 14%, and ML4 explains 10% of the variance in the data. The first two factors (ML1 and ML2) explain 33% of the variance and all four factors explain 56% of the variance cumulatively, which is reasonable. Factors ML1 to ML4 have correlations close to 1 with their respective factor scores, indicating that the scores are well-represented by the factors.
+  
+## Loading Analysis 
+```{r}
+loadings_fa <- fa_result$loadings
+
+# Loading ML1 
+
+loadings_ML1 <- sort(abs(loadings_fa[,1]), decreasing = TRUE)
+
+ggplot(data = data.frame(Variable = names(loadings_ML1), Loading = loadings_ML1), aes(x = Variable, y = Loading)) +
+  geom_bar(stat = "identity", fill = "coral4") +
+  labs(title = "Contributions to ML1", x = "Variable", y = "Loading") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+```
+
+**ReadingScore** has a strong posiitive correlation with ML1 - the first factor in this factor analysis model.
+
+```{r}
+# Loading ML2 
+
+loadings_ML2 <- sort(abs(loadings_fa[,2]), decreasing = TRUE)
+
+ggplot(data = data.frame(Variable = names(loadings_ML2), Loading = loadings_ML2), aes(x = Variable, y = Loading)) +
+  geom_bar(stat = "identity", fill = "coral4") +
+  labs(title = "Contributions to ML2", x = "Variable", y = "Loading") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+```
+
+The primary contributor to ML2 is **Gender**, with a very strong positive correlation. 
+
+```{r}
+# Loading ML3
+loadings_ML3 <- sort(abs(loadings_fa[,3]), decreasing = TRUE)
+
+ggplot(data = data.frame(Variable = names(loadings_ML3), Loading = loadings_ML3), aes(x = Variable, y = Loading)) +
+  geom_bar(stat = "identity", fill = "coral4") +
+  labs(title = "Contributions to ML3", x = "Variable", y = "Loading") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+ML3 is odminated by **MathScore**. 
+
+```{r}
+# Loading ML4
+loadings_ML4 <- sort(abs(loadings_fa[,4]), decreasing = TRUE)
+
+ggplot(data = data.frame(Variable = names(loadings_ML4), Loading = loadings_ML3), aes(x = Variable, y = Loading)) +
+  geom_bar(stat = "identity", fill = "coral4") +
+  labs(title = "Contributions to ML3", x = "Variable", y = "Loading") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+Finally, **WritingScore** contributes significantly to the last ML. 
+
+## Conclusion
+  
+  Four factors retained in Factor Analysis represent the key underlying structures in the data, together explaining 56% of the variance in the data. The high correlation of factor scores with the corresponding factors indicates a good model fit. The factor scores seem to capture the essential structure of the data, and the factors themselves appear to be clearly defined and well-interpreted. Students' reading performance seems to be an important underlying factor, as it contributes significantly to the first factor.On the other hand, Gender is a prominent contributor to the second factor, which suggest that gender differences play a role in the performance patterns across various subjects.The third factor reflects the importance of MathScore in explaining the variation in student performance - math performance could be viewed as a distinct factor influencing overall performance. Finally, WritingScore is a critical contributor to the overall performance model.
+  
+  PCA explains a higher percentage of variance (78.6%) compared to FA (56%). This is expected, as PCA focuses on explaining the most variance in the data through a linear combination of variables, while FA focuses on uncovering latent factors that underlie the observed data. Together, they offer a comprehensive approach to analyzing provided Students Performance dataset. 
+
+# Clustering 
+
+I decided that I will proceed with clustering after PCA and Factor Analysis. It seems logical and beneficial for me, because clustering complements them by further uncovering patterns and grouping observations in the dataset. Clustering on the reduced Students Performance dataset can group students into distinct clusters based on shared characteristics (for example; performance levels, demographic factors, or study habits). This helps in identifying meaningful subgroups, such as "high-performing students with minimal parental education" or "students benefiting most from test preparation.". PCA ensures that clustering is applied to the most informative dimensions, improving the quality of the clusters. 
+
+## K-means Clustering 
+
+I am choosing the previosly defined 4 first principal components (they explain 78.6% of the variance).
+```{r}
+
+pca_data <- as.data.frame(pca$x[, 1:4])
+
+```
+
+Determining the optimal number of clusters. I am using Elbow Method and Silhouette Analysis.
+
+```{r, message=FALSE}
+library(factoextra)
+
+# Elbow method
+fviz_nbclust(pca_data, kmeans, method = "wss") + 
+  labs(title = "Elbow Method for Optimal Clusters")
+
+# Silhouette analysis
+fviz_nbclust(pca_data, kmeans, method = "silhouette") +
+  labs(title = "Silhouette Analysis for Optimal Clusters")
+
+```
+
+I am now applying the K-means clustering on the determined 2 clusters. 
+
+```{r}
+kmeans_result <- kmeans(pca_data, centers = 2, nstart = 25)
+
+# Visualize the clusters
+fviz_cluster(kmeans_result, data = pca_data, geom = "point") +
+  labs(title = "K-means Clustering Results")
+```
+
+```{r}
+Students_performance$Cluster <- kmeans_result$cluster
+
+# View summary of each cluster
+aggregate(. ~ Cluster, data = Students_performance, FUN = mean)
+```
+
+Interpretation of the output:
+Cluster 1
+
+-**Gender**: 1.398 (closer to one, which corresponds to females). Higher proportion of females.
+-**Race/ethnicity**: 3.43 (corresponding to the third racial/ethnic group). Consists mainly of students from racial/ethnic group C.
+-**Parent's Education**: 3.36 - relatively higher than in Cluster 2, closer to "some college" or "associate's degree"
+-**Lunch**: 1.78 (closer to 2). Most students receive a standard lunch.
+-**Test Preparation Course**: 1.52 (closer to 2). Many students in this cluster has completed a test preparation course.
+-**Scores** 
+ - Math: 75.41
+ - Reading: 79.12
+ - Writing: 78.72
+ Students in this cluster tend to score higher on all of the three exam in comparison to the second cluster - this indicates better academic performance. 
+ 
+Cluster 2
+
+-**Gender**: 1.59 (closer to two, which corresponds to males). This cluster has Higher proportion of males.
+-**Race/ethnicity**: 2.86 (corresponding to the second racial/ethnic group). Consists mainly of students from racial/ethnic group B.
+-**Parent's Education**: 2.73 - lower than in Cluster 1, closer to "high school" or "some high school"
+-**Lunch**: 1.48 (closer to 1). Most students receive a reduced/free lunch.
+-**Test Preparation Course**: 1.80 (closer to 2). Even more students compared to Cluster 1, has completed a test preparation course. 
+-**Scores** 
+ - Math: 54.46
+ - Reading: 56.76
+ - Writing: 54.75
+ Students in this cluster tend to have lower scores - they are comparatively weaker when it comes to academic performance. 
+ 
+
+```{r, message=FALSE}
+library(cluster)
+silhouette_score <- silhouette(kmeans_result$cluster, dist(Students_performance))
+summary(silhouette_score)
+
+```
+  I am computing a Silhouette Score to measure how well each of students fits within their cluster compared to other clusters. I can draw several observation from this analysis. The first cluster contains 555 units (55.5% of the data), while the second cluster contains 445 units (44.5% of the data). The sizes are fairly balanced, which is a positive sign for meaningful clusters. The average silhouette width for Cluster 1 is 0.4536, for Cluster 2 is 0.4128. These scores are above 0.4, which suggests that the clusters are moderately well-separated, but unfortunately there may still be some overlap. Minimum silhouette width is -0.4211, indicating that some points are likely misclassified. Median silhouette width is 0.5243, indicating that the majority of points are reasonably well-clustered. The overall mean silhouette width is 0.4355 - acceptable, close to 0.5, but not very strong clustering structure. 
+
+  I will try to experiment with a larger number of clusters and see if this score improves. 
+
+```{r}
+# K-means with 3 clusters
+kmeans_result_new <- kmeans(pca_data, centers = 3, nstart = 25)
+
+# Visualize the clusters
+fviz_cluster(kmeans_result_new, data = pca_data, geom = "point") +
+  labs(title = "K-means Clustering Results")
+```
+```{r}
+Students_performance$Cluster <- kmeans_result_new$cluster
+
+# View summary of each cluster
+aggregate(. ~ Cluster, data = Students_performance, FUN = mean)
+
+silhouette_score_new <- silhouette(kmeans_result_new$cluster, dist(Students_performance))
+summary(silhouette_score_new)
+```
+  
+  The addition of a third cluster has not improved the separation. It has worsened compared to the previous 2-cluster case. Cluster 2 seems to have the best separation, but Clusters 1 and 3 show weak clustering, especially with negative silhouette widths for some points. The low mean, equal to 0.2277 indicates weak clustering overall. 
+
+## Hierarchical Clustering
+
+I am now trying Hierarchical Clustering in order to check if it offers better separation than the K-means clustering. 
+
+```{r, message=FALSE}
+dist_matrix <- dist(pca_data, method = "euclidean")
+
+hc <- hclust(dist_matrix, method = "ward.D2")
+
+```
+```{r, message=FALSE}
+hc_clusters <- cutree(hc, k = 2)
+
+
+Students_performance$Cluster <- hc_clusters
+
+library(dendextend)
+
+# Color the dendrogram by cluster
+hc_dend <- as.dendrogram(hc)
+hc_colored <- color_branches(hc_dend, k = 2)
+plot(hc_colored, main = "Colored Dendrogram")
+
+aggregate(. ~ Cluster, data = Students_performance, FUN = mean)
+
+library(cluster)
+silhouette_result_hh <- silhouette(cutree(hc, k = 2), dist(Students_performance))
+summary(silhouette_result_hh)
+```
+
+## Comparison of K-means and Hierarchical Clustering
+
+The K-means solution has a higher mean silhouette width (0.4355) and median silhouette width (0.5243), which indicates better clustering quality overall in comparison to Hierarchical Clustering, with a lower mean silhouette width (0.3007) and median silhouette width (0.4447). 
+
+
+## Analysis of output from K-means
+
+  Cluster 1 students have higher parental education levels and receive more standard lunches, possibly reflecting higher socioeconomic status. In contrast, Cluster 2 students tend to have reduced/free lunches and lower parental education levels, reflecting lower socioeconomic status. Cluster 1 leans toward females, while Cluster 2 leans toward males.Cluster 1 students outperform Cluster 2 students in all three exam scores (math, reading, and writing). Both clusters show a significant number of students who completed the test preparation course, but this appears to have a greater impact on Cluster 1 students' scores. According to Cluster 1 students may benefit from their relatively stronger potential socioeconomic background and parental support. They may require advanced academic challenges to further develop their performance. Cluster 2 highlights the importance of interventions such as additional support for academic skills in math, reading, and writing.
+
+
+## Conclusions 
+
+  K-means Clustering with 2 clusters demonstrates better overall clustering quality based on the silhouette analysis, but not perfect. It has higher average, median, and mean silhouette widths, indicating more cohesive and well-separated clusters.
+Hierarchical Clustering with 2 clusters has lower average silhouette widths and shows more negative individual silhouette widths - poorer clustering quality. The clusters are not as well-defined or cohesive in this case.
+
+
+[^1]: https://www.ibm.com/think/topics/principal-component-analysis
+[^2]: https://medium.com/@mitishaa6/a-deep-dive-into-factor-analysis-d64e550c358f
+[^3]: https://www.statisticshowto.com/kaiser-meyer-olkin/
+[^4]: https://blogs.sas.com/content/iml/2022/04/27/bartletts-sphericity-test.html
